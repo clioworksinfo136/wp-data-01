@@ -72,7 +72,14 @@ import "@aws-amplify/ui-react/styles.css";
 //import type { WaterFeatureProperties } from './types';
 import './FeaturePopup.css';
 
-const MAPBOX_TOKEN = "pk.eyJ1IjoiaGF6ZW5zYXd5ZXIiLCJhIjoiY2xmMnY0NzE1MGMzMjNycGp6bDQwcWZsNyJ9.1JJeWIQgrykU5b3oqSr1sQ";
+const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
+
+if (!MAPBOX_TOKEN) {
+  console.error(
+    "VITE_MAPBOX_TOKEN is not set. Copy .env.example to .env.local and add a " +
+    "Mapbox access token, then restart the dev server."
+  );
+}
 const client = generateClient<Schema>();
 
 
