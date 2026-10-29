@@ -11,34 +11,21 @@ import type { MapMouseEvent } from "mapbox-gl";
 
 
 import 'mapbox-gl/dist/mapbox-gl.css';
-//import { useGeoJSON } from './useGeoJSON';
 
 import type { WaterFeatureProperties } from './types';
 import './MapView.css';
 
-//import { MapboxOverlay, MapboxOverlayProps } from "@deck.gl/mapbox/typed";
-//import { PickingInfo } from "@deck.gl/core/typed";
-
-import "@aws-amplify/ui-react/styles.css";
-
-import "maplibre-gl/dist/maplibre-gl.css"; // Import maplibre-gl styles
 
 import {
   Map,
   Source,
   Layer,
-  //useControl,
-  //Popup,
   Marker,
   NavigationControl,
   GeolocateControl,
   ScaleControl,
   Popup
 } from "react-map-gl";
-
-
-
-import "mapbox-gl/dist/mapbox-gl.css";
 
 
 import {
@@ -58,18 +45,9 @@ import {
   ScrollView,
   Radio,
   RadioGroupField,
-  //CheckboxField,
-  // TextField,
 } from "@aws-amplify/ui-react";
 
-import "@aws-amplify/ui-react/styles.css";
 
-import "@aws-amplify/ui-react/styles.css";
-
-//import { IconLayer } from "@deck.gl/layers/typed";
-
-
-//import type { WaterFeatureProperties } from './types';
 import './FeaturePopup.css';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
@@ -112,23 +90,6 @@ const theme: Theme = {
   },
 };
 
-// type DataT = {
-//   type: "Feature";
-//   id: number;
-//   geometry: {
-//     type: "Point";
-//     coordinates: [number, number, number];
-//   };
-//   properties: {
-//     track: number;
-//     type: string;
-//     status: string;
-//     date: string;
-//     time: string;
-//     id: string;
-//   };
-// };
-
 type SelectOption = {
   value: string;
   label: string;
@@ -138,15 +99,11 @@ const AIR_PORTS =
   "https://etwzctydh9.execute-api.us-east-1.amazonaws.com/test/getData";
 
 
-
 // Hong's addition
 export type CustomEvent = {
   target: HTMLInputElement
 }
 // Hong's addition end
-
-//const MAP_STYLE = "mapbox://styles/mapbox/streets-v12";
-// "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
 
 
 function PhotoImg({ path, height }: { path: string; height: number }) {
@@ -175,12 +132,9 @@ function App() {
   const [photosData, setPhotosData] = useState<PhotoRecord[]>([]);
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
-  //const [report, setReport] = useState("");
   const [track, setTrack] = useState<number>(0);
   const [type, setType] = useState<string>("water");
   const [diameter, setDiameter] = useState<number>(0);
-  const [length, setLength] = useState<number>(0);
-  const [userName, setUserName] = useState<string>();
   const [description, setDescription] = useState<string>("");
   const [joint, setJoint] = useState<boolean>(true);
   const [lat, setLat] = useState(0);
@@ -191,12 +145,6 @@ function App() {
   const [basemap, setBasemap] = useState("mapbox://styles/mapbox/streets-v12");
   const [calResult, setCalResult] = useState<number | null>(null);
   const [unitCosts, setUnitCosts] = useState<{ diameter: number; price: number }[]>([]);
-
-  //const [clickInfo, setClickInfo] = useState<DataT>();
-  //const [showPopup, setShowPopup] = useState<boolean>(true);
-
-
-  //const { data } = useGeoJSON();
   const [popupInfo, setPopupInfo] = useState<PopupInfo | null>(null);
   const [cursor, setCursor] = useState<string>('grab');
   const [editTrack, setEditTrack] = useState<string>('');
@@ -204,7 +152,6 @@ function App() {
   const [editDiameter, setEditDiameter] = useState<string>('');
   const [editType, setEditType] = useState<string>('water');
   const [editJoint, setEditJoint] = useState<boolean>(true);
-
 
 
   const options: SelectOption[] = [
@@ -239,15 +186,6 @@ function App() {
     setDiameter(parseInt(e.target.value));
   }
 
-
-
-  const handleUserName = async () => {
-    const name = await checkLoginAndGetName();
-    //console.log((name));
-    if (name) {
-      setUserName(name)
-    }
-  }
 
   const handleDescription = (e: ChangeEvent<HTMLInputElement>) => {
     setDescription(e.target.value);
@@ -311,10 +249,6 @@ function App() {
   }, [location]);
 
   useEffect(() => {
-    handleUserName();
-  }, []);
-
-  useEffect(() => {
     fetch("https://50fb42daa5.execute-api.us-east-1.amazonaws.com/test/getData")
       .then(res => res.json())
       .then(data => setUnitCosts(data))
@@ -322,20 +256,15 @@ function App() {
   }, []);
 
 
-
-  function createLocation() {
-    handleUserName();
-    //console.log(typeof userName);
-    //console.log("Username:", userName);
-    const name = userName
-    //console.log(name);
+  async function createLocation() {
+    const name = await checkLoginAndGetName();
     client.models.Location.create({
       date: date,
       time: time,
       track: track,
       type: type,
       diameter: diameter,
-      length: calResult !== null ? calResult : length,
+      length: calResult ?? 0,
       username: name,
       description: description,
 
@@ -347,10 +276,6 @@ function App() {
     });
     setDate("");
     setTime("");
-    setTrack(track);
-    setType(type);
-    setDiameter(diameter);
-    setUserName("");
     setDescription("");
     setLat(0);
     setLng(0);
@@ -401,9 +326,6 @@ function App() {
   }
 
 
-
-
-
   async function handleSubmit(event: SyntheticEvent, id: string) {
     event.preventDefault();
 
@@ -414,7 +336,7 @@ function App() {
 
     const currentLoc = await client.models.Location.get({ id });
 
-    let revised: string[] = [];
+    const revised: string[] = [];
     if (currentLoc.data?.photos) {
       currentLoc.data.photos.forEach(d => { if (d) revised.push(d); });
     }
@@ -428,7 +350,6 @@ function App() {
   }
 
   function clearFields() {
-    //setuserName('');
     setPlacePhotos([]);
   }
 
@@ -513,7 +434,10 @@ function App() {
       if (editDiameter !== '' && !isNaN(parsedDiameter)) input.diameter = parsedDiameter;
 
       console.log('Updating via GraphQL:', input);
-      const result = await (client as any).graphql({ query: mutation, variables: { input } });
+      const graphqlClient = client as unknown as {
+        graphql: (options: { query: string; variables: unknown }) => Promise<unknown>;
+      };
+      const result = await graphqlClient.graphql({ query: mutation, variables: { input } });
       console.log('Update result:', result);
 
       // Manually patch local state so the UI reflects the change immediately,
@@ -559,7 +483,6 @@ function App() {
     }
 
     if (!latest || latest.lat == null || latest.lng == null) {
-      setLength(0);
       setCalResult(0);
       return;
     }
@@ -592,7 +515,7 @@ function App() {
       setEditDiameter(props.diameter != null ? String(props.diameter) : '');
       setEditType(props.type ?? 'water');
       setEditJoint(match?.joint !== false);
-    };
+    }
   }, [location]);
 
   const onMouseEnter = useCallback(() => setCursor('pointer'), []);

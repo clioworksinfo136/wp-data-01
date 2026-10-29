@@ -9,17 +9,3 @@ export interface WaterFeatureProperties {
   length: number;
   joint: boolean | null;
 }
-
-export interface WaterFeature {
-  type: 'Feature';
-  geometry: {
-    type: 'Point';
-    coordinates: [number, number, number];
-  };
-  properties: WaterFeatureProperties;
-}
-
-export interface WaterGeoJSON {
-  type: 'FeatureCollection';
-  features: WaterFeature[];
-}
