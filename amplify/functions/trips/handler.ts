@@ -1,8 +1,9 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, ScanCommand } from '@aws-sdk/lib-dynamodb';
 
-/** Timestamps are seconds elapsed from this instant (UTC). */
+/** Timestamps are days elapsed from this instant (UTC). */
 const BASE_TIME = Date.parse('2024-10-15T00:00:00Z');
+const MS_PER_DAY = 86_400_000;
 
 /** Each track carries a single utility type, which becomes the vendor index. */
 const VENDOR_BY_TYPE: Record<string, number> = {
@@ -31,12 +32,16 @@ interface Trip {
   timestamps: number[];
 }
 
-/** Seconds from BASE_TIME. `time` is stored as HH:MM, which Date.parse needs padded. */
-function elapsedSeconds(row: LocationRow): number {
+/**
+ * Days from BASE_TIME, kept fractional so time of day survives the conversion.
+ * `time` is stored as HH:MM, which Date.parse needs padded to HH:MM:SS.
+ */
+function elapsedDays(row: LocationRow): number {
   const raw = row.time ?? '00:00:00';
   const time = /^\d{2}:\d{2}$/.test(raw) ? `${raw}:00` : raw;
   const at = Date.parse(`${row.date}T${time}Z`);
-  return Number.isNaN(at) ? 0 : Math.round((at - BASE_TIME) / 1000);
+  if (Number.isNaN(at)) return 0;
+  return Math.round(((at - BASE_TIME) / MS_PER_DAY) * 100_000) / 100_000;
 }
 
 async function scanAll(tableName: string): Promise<LocationRow[]> {
@@ -67,7 +72,7 @@ export function toTrips(rows: LocationRow[]): Trip[] {
 
   return [...byTrack.keys()].sort((a, b) => a - b).map((track) => {
     const ordered = byTrack.get(track)!
-      .map((row) => ({ row, at: elapsedSeconds(row) }))
+      .map((row) => ({ row, at: elapsedDays(row) }))
       .sort((a, b) => a.at - b.at);
     return {
       trackId: `track_${String(track).padStart(2, '0')}`,
