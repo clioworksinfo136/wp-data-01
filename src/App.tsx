@@ -1,5 +1,5 @@
 import type { ChangeEvent, SyntheticEvent } from "react";
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import type { Schema } from "../amplify/data/resource";
 import { checkLoginAndGetName } from "./utils/AuthUtils";
 import { useAuthenticator } from '@aws-amplify/ui-react';
@@ -177,6 +177,11 @@ function App() {
   const [lat, setLat] = useState(0);
   const [lng, setLng] = useState(0);
   const [placePhotos, setPlacePhotos] = useState<File[]>([]);
+  type UploadStatus = { state: 'idle' | 'uploading' | 'done' | 'error'; message?: string };
+  const [uploadStatus, setUploadStatus] = useState<UploadStatus>({ state: 'idle' });
+  // handleSubmit clears placePhotos, but the native input keeps showing the
+  // old filename until its own value is reset.
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [tab, setTab] = useState("1");
   const [basemap, setBasemap] = useState("mapbox://styles/mapbox/streets-v12");
@@ -557,6 +562,8 @@ function App() {
       const [lng, lat] = point.geometry.coordinates;
       const props = point.properties as WaterFeatureProperties;
       setPipePopup(null);
+      setPlacePhotos([]);
+      setUploadStatus({ state: 'idle' });
       setPopupInfo({
         longitude: lng,
         latitude: lat,
@@ -999,24 +1006,56 @@ function App() {
                         <br /><br />
                         <label style={{ fontSize: '11px' }}>Place photos:</label><br />
                         <input type="file" multiple
-                          onChange={(e) => previewPhotos(e)}
+                          ref={fileInputRef}
+                          onChange={(e) => { previewPhotos(e); setUploadStatus({ state: 'idle' }); }}
                           placeholder="new picture"
+                          disabled={uploadStatus.state === 'uploading'}
                           style={{ fontSize: '11px' }}
                         /><br /><br />
                         <button
-                          onClick={(e) => {
-                            console.log(popupInfo.properties);
-                            handleSubmit(e, popupInfo.properties.id);
-                            setPopupInfo(null);
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (placePhotos.length === 0) {
+                              setUploadStatus({ state: 'error', message: 'Choose a photo first.' });
+                              return;
+                            }
+                            setUploadStatus({ state: 'uploading' });
+                            try {
+                              await handleSubmit(e, popupInfo.properties.id);
+                              if (fileInputRef.current) fileInputRef.current.value = '';
+                              setUploadStatus({
+                                state: 'done',
+                                message: `Uploaded ${placePhotos.length} photo${placePhotos.length > 1 ? 's' : ''}.`,
+                              });
+                            } catch (err) {
+                              console.error('Photo upload failed:', err);
+                              setUploadStatus({
+                                state: 'error',
+                                message: err instanceof Error ? err.message : 'Upload failed.',
+                              });
+                            }
                           }}
+                          disabled={uploadStatus.state === 'uploading'}
                           style={{
-                            fontSize: '11px', padding: '2px 8px', cursor: 'pointer',
+                            fontSize: '11px', padding: '2px 8px',
+                            cursor: uploadStatus.state === 'uploading' ? 'wait' : 'pointer',
                             border: '1px solid #555', borderRadius: '3px',
                             background: '#fff', color: '#333',
+                            opacity: uploadStatus.state === 'uploading' ? 0.6 : 1,
                           }}
                         >
-                          Upload
+                          {uploadStatus.state === 'uploading'
+                            ? `Uploading ${placePhotos.length} photo${placePhotos.length > 1 ? 's' : ''}...`
+                            : 'Upload'}
                         </button>
+                        {uploadStatus.message && (
+                          <div style={{
+                            fontSize: '11px', marginTop: '6px',
+                            color: uploadStatus.state === 'error' ? '#c00' : '#2a7',
+                          }}>
+                            {uploadStatus.message}
+                          </div>
+                        )}
                         <br /><br />
                         <button
                           onClick={(e) => { e.stopPropagation(); handleUpdatePopup(popupInfo.properties.id); }}
