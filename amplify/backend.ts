@@ -1,5 +1,5 @@
 import { defineBackend } from '@aws-amplify/backend';
-import { FunctionUrlAuthType, HttpMethod } from 'aws-cdk-lib/aws-lambda';
+import { Cors, LambdaRestApi } from 'aws-cdk-lib/aws-apigateway';
 import { auth } from './auth/resource';
 import { data } from './data/resource';
 import { imagesStorage } from './storage/resource';
@@ -18,18 +18,22 @@ const locationTable = backend.data.resources.tables['Location'];
 locationTable.grantReadData(backend.trips.resources.lambda);
 backend.trips.addEnvironment('LOCATION_TABLE_NAME', locationTable.tableName);
 
-// Public GET endpoint: no auth, so a map client can fetch it directly.
-const tripsUrl = backend.trips.resources.lambda.addFunctionUrl({
-  authType: FunctionUrlAuthType.NONE,
-  cors: {
-    allowedOrigins: ['*'],
-    allowedMethods: [HttpMethod.GET],
+// Served through API Gateway rather than a Lambda Function URL: this account
+// blocks public function URLs, which answer 403 even with an open resource
+// policy.
+const apiStack = backend.createStack('trips-api');
+const tripsApi = new LambdaRestApi(apiStack, 'TripsApi', {
+  handler: backend.trips.resources.lambda,
+  proxy: true,
+  defaultCorsPreflightOptions: {
+    allowOrigins: Cors.ALL_ORIGINS,
+    allowMethods: ['GET', 'OPTIONS'],
   },
 });
 
 // Surfaces the URL in amplify_outputs.json under custom.tripsUrl.
 backend.addOutput({
   custom: {
-    tripsUrl: tripsUrl.url,
+    tripsUrl: tripsApi.url,
   },
 });
