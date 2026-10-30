@@ -2,7 +2,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, ScanCommand } from '@aws-sdk/lib-dynamodb';
 
 /** Timestamps are days elapsed from this instant (UTC). */
-const BASE_TIME = Date.parse('2024-10-15T00:00:00Z');
+const BASE_TIME = Date.parse('2024-10-25T00:00:00Z');
 const MS_PER_DAY = 86_400_000;
 
 /** Each track carries a single utility type, which becomes the vendor index. */
