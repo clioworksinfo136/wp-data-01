@@ -10,7 +10,7 @@ import { uploadData, remove, getUrl } from "aws-amplify/storage";
 import type { MapMouseEvent } from "mapbox-gl";
 
 
-import 'mapbox-gl/dist/mapbox-gl.css';
+import 'mapbox-gl/dist/mapbox-gl.css'; //this is useless
 
 import type { WaterFeatureProperties } from './types';
 import './MapView.css';
