@@ -3,7 +3,7 @@ export interface WaterFeatureProperties {
   date: string;
   time: string;
   description: string;
-  track: string;
+  track: number;
   type: string;
   diameter: number;
   length: number;

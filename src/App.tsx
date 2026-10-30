@@ -1,5 +1,5 @@
 import type { ChangeEvent, SyntheticEvent } from "react";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import type { Schema } from "../amplify/data/resource";
 import { checkLoginAndGetName } from "./utils/AuthUtils";
 import { useAuthenticator } from '@aws-amplify/ui-react';
@@ -95,10 +95,6 @@ type SelectOption = {
   label: string;
 };
 
-const AIR_PORTS =
-  "https://etwzctydh9.execute-api.us-east-1.amazonaws.com/test/getData";
-
-
 // Hong's addition
 export type CustomEvent = {
   target: HTMLInputElement
@@ -115,6 +111,48 @@ function PhotoImg({ path, height }: { path: string; height: number }) {
   return <img src={src} alt={path} height={height} style={{ marginLeft: '10px', marginBottom: '8px' }} />;
 }
 
+// The visible pipe layers are 1px wide, so each vector source also renders an
+// invisible 12px "-hit" line that is what actually gets clicked and hovered.
+const PIPE_HIT_LAYERS = ['water-lines-hit', 'gravity-lines-hit', 'storm-lines-hit'];
+
+// Record drawings live in S3 named after the endpoint, e.g. "C-121" -> C-121.pdf.
+// Both ends of a segment (D1 = From, D2 = To) link to their own drawing.
+const PIPE_PDF_BASE_URL = 'https://hollywood-files.s3.us-east-1.amazonaws.com/washington-park-pdf/';
+const PIPE_PDF_FIELDS = ['D1', 'D2'];
+
+// Attribute names differ per tileset, so each source declares what to show.
+const PIPE_SOURCES: Record<string, { label: string; color: string; fields: [string, string][] }> = {
+  wMain: {
+    label: 'Water Main',
+    color: '#2b6cb0',
+    fields: [['DIAMETER', 'Diameter (in)'], ['PRJFACID', 'Facility ID'], ['D1', 'From'], ['D2', 'To'], ['OBJECTID', 'Object ID']],
+  },
+  sgravity: {
+    label: 'Gravity Sewer',
+    color: '#2ea160',
+    fields: [['DIAMETER', 'Diameter (in)'], ['FACILITYID', 'Facility ID'], ['PRJFACID', 'Project ID'], ['D1', 'From'], ['D2', 'To'], ['OBJECTID', 'Object ID']],
+  },
+  sdrain: {
+    label: 'Storm Drain',
+    color: '#eca4a4',
+    fields: [['DIAMETER', 'Diameter (in)'], ['WATERTYPE', 'Type'], ['Shape_Leng', 'Length (ft)'], ['PRJFACID', 'Facility ID'], ['ProjectNum', 'Project #']],
+  },
+};
+
+interface PipeRow {
+  label: string;
+  value: string;
+  href?: string;
+}
+
+interface PipePopupInfo {
+  longitude: number;
+  latitude: number;
+  label: string;
+  color: string;
+  rows: PipeRow[];
+}
+
 interface PopupInfo {
   longitude: number;
   latitude: number;
@@ -127,7 +165,6 @@ function App() {
   const { signOut } = useAuthenticator();
   //const client = generateClient<Schema>();
   const [location, setLocation] = useState<Array<Schema["Location"]["type"]>>([]);
-  const [jointMap, setJointMap] = useState<Record<string, boolean | null>>({});
   type PhotoRecord = { id: string; date: string | null; description: string | null; photos: (string | null)[] | null };
   const [photosData, setPhotosData] = useState<PhotoRecord[]>([]);
   const [date, setDate] = useState("");
@@ -146,6 +183,7 @@ function App() {
   const [calResult, setCalResult] = useState<number | null>(null);
   const [unitCosts, setUnitCosts] = useState<{ diameter: number; price: number }[]>([]);
   const [popupInfo, setPopupInfo] = useState<PopupInfo | null>(null);
+  const [pipePopup, setPipePopup] = useState<PipePopupInfo | null>(null);
   const [cursor, setCursor] = useState<string>('grab');
   const [editTrack, setEditTrack] = useState<string>('');
   const [editDescription, setEditDescription] = useState<string>('');
@@ -154,6 +192,31 @@ function App() {
   const [editJoint, setEditJoint] = useState<boolean>(true);
 
 
+  // The point layer is rendered straight from the Location records.
+  const pointsGeoJSON = useMemo(() => ({
+    type: 'FeatureCollection' as const,
+    features: location
+      .filter(loc => loc.lat != null && loc.lng != null)
+      .map(loc => ({
+        type: 'Feature' as const,
+        geometry: {
+          type: 'Point' as const,
+          coordinates: [Number(loc.lng), Number(loc.lat)],
+        },
+        properties: {
+          id: loc.id,
+          date: loc.date ?? '',
+          time: loc.time ?? '',
+          description: loc.description ?? '',
+          track: loc.track ?? 0,
+          type: loc.type ?? 'water',
+          diameter: loc.diameter ?? 0,
+          length: loc.length ?? 0,
+          joint: loc.joint ?? null,
+        },
+      })),
+  }), [location]);
+
   const options: SelectOption[] = [
     { value: 'water', label: 'Water' },
     { value: 'wastewater', label: 'Wastewater' },
@@ -161,7 +224,6 @@ function App() {
     { value: 'pavement', label: 'Pavement' }
   ];
 
-  //console.log(AIR_PORTS);
 
 
   const handleDate = (e: ChangeEvent<HTMLInputElement>) => {
@@ -208,21 +270,6 @@ function App() {
     });
     return () => sub.unsubscribe();
   }, []);
-
-  useEffect(() => {
-    fetch(AIR_PORTS)
-      .then(res => res.json())
-      .then((geojson) => {
-        const map: Record<string, boolean | null> = {};
-        geojson.features?.forEach((f: { properties?: { id?: string; joint?: boolean | null } }) => {
-          if (f.properties?.id) {
-            map[f.properties.id] = f.properties.joint ?? null;
-          }
-        });
-        setJointMap(map);
-      })
-      .catch(err => console.error('Failed to fetch joint from AIR_PORTS:', err));
-  }, [location]);
 
   useEffect(() => {
     const fetchAllPhotos = async () => {
@@ -491,32 +538,65 @@ function App() {
   }
 
   const onClick = useCallback((e: MapMouseEvent) => {
-    const feature = e.features?.[0];
-
-    //console.log("clicked feature =", feature);
-    if (!feature || feature.geometry.type !== 'Point') {
-      //console.log(e);
-      setLat(e.lngLat.lat);
-      setLng(e.lngLat.lng);
-      setPopupInfo(null);
+    const features = e.features ?? [];
+    // A survey point sitting on top of a pipe wins, since it is the editable record.
+    const point = features.find(f => f.geometry.type === 'Point');
+    // feature.source is optional in the typings, so resolve the spec while narrowing.
+    let pipe: typeof features[number] | undefined;
+    let pipeSpec: (typeof PIPE_SOURCES)[string] | undefined;
+    for (const f of features) {
+      const spec = typeof f.source === 'string' ? PIPE_SOURCES[f.source] : undefined;
+      if (spec) {
+        pipe = f;
+        pipeSpec = spec;
+        break;
+      }
     }
-    else {
 
-      const [lng, lat] = feature.geometry.coordinates;
-      const props = feature.properties as WaterFeatureProperties;
-      const match = location.find(loc => loc.id === props.id);
+    if (point && point.geometry.type === 'Point') {
+      const [lng, lat] = point.geometry.coordinates;
+      const props = point.properties as WaterFeatureProperties;
+      setPipePopup(null);
       setPopupInfo({
         longitude: lng,
         latitude: lat,
-        properties: { ...props, joint: match?.joint ?? null },
+        properties: props,
       });
       setEditTrack(props.track != null ? String(props.track) : '');
       setEditDescription(props.description ?? '');
       setEditDiameter(props.diameter != null ? String(props.diameter) : '');
       setEditType(props.type ?? 'water');
-      setEditJoint(match?.joint !== false);
+      setEditJoint(props.joint !== false);
     }
-  }, [location]);
+    else if (pipe && pipeSpec) {
+      const props: Record<string, unknown> = pipe.properties ?? {};
+      const rows = pipeSpec.fields
+        .filter(([key]) => props[key] !== undefined && props[key] !== null && props[key] !== '')
+        .map(([key, label]): PipeRow => {
+          const raw = props[key];
+          const value = key === 'Shape_Leng' && typeof raw === 'number' ? raw.toFixed(1) : String(raw);
+          const href = PIPE_PDF_FIELDS.includes(key)
+            ? `${PIPE_PDF_BASE_URL}${encodeURIComponent(value)}.pdf`
+            : undefined;
+          return { label, value, href };
+        });
+      setPopupInfo(null);
+      setPipePopup({
+        longitude: e.lngLat.lng,
+        latitude: e.lngLat.lat,
+        label: pipeSpec.label,
+        color: pipeSpec.color,
+        rows,
+      });
+    }
+    else {
+      // Clicked bare map: move the marker for the next record.
+      setLat(e.lngLat.lat);
+      setLng(e.lngLat.lng);
+      setPopupInfo(null);
+      setPipePopup(null);
+    }
+  }, []);
 
   const onMouseEnter = useCallback(() => setCursor('pointer'), []);
   const onMouseLeave = useCallback(() => setCursor('grab'), []);
@@ -642,13 +722,13 @@ function App() {
                   height: "1000px",
                   borderColor: "#000000",
                 }}
-                interactiveLayerIds={['water-points']}
+                interactiveLayerIds={PIPE_HIT_LAYERS.concat('water-points')}
                 onClick={onClick}
                 onMouseEnter={onMouseEnter}
                 onMouseLeave={onMouseLeave}
                 cursor={cursor}
               >
-                <Source id="water-data" type="geojson" data={AIR_PORTS}>
+                <Source id="water-data" type="geojson" data={pointsGeoJSON}>
 
                   <Layer
                     id='water-points'
@@ -692,6 +772,16 @@ function App() {
                       'line-dasharray': [4, 2]
                     }}
                   />
+                  <Layer
+                    id='water-lines-hit'
+                    type='line'
+                    source='wMain'
+                    source-layer="wMain-1r1fzu"
+                    paint={{
+                      'line-width': 12,
+                      'line-opacity': 0,
+                    }}
+                  />
                 </Source>
                 <Source id="sgravity" type="vector" url="mapbox://hazensawyer.54mpxvz3">
                   <Layer
@@ -705,6 +795,16 @@ function App() {
                       // to set the line-color to a feature property value.
                       'line-color': "#2ea160",
                       'line-dasharray': [4, 2]
+                    }}
+                  />
+                  <Layer
+                    id='gravity-lines-hit'
+                    type='line'
+                    source='sgravity'
+                    source-layer="sGravity-d079ci"
+                    paint={{
+                      'line-width': 12,
+                      'line-opacity': 0,
                     }}
                   />
                 </Source>
@@ -722,7 +822,69 @@ function App() {
                       'line-dasharray': [4, 2]
                     }}
                   />
+                  <Layer
+                    id='storm-lines-hit'
+                    type='line'
+                    source='sdrain'
+                    source-layer="sDrain-7lho1y"
+                    paint={{
+                      'line-width': 12,
+                      'line-opacity': 0,
+                    }}
+                  />
                 </Source>
+                {pipePopup && (
+                  <Popup
+                    longitude={pipePopup.longitude}
+                    latitude={pipePopup.latitude}
+                    anchor="bottom"
+                    offset={12}
+                    onClose={() => setPipePopup(null)}
+                    closeOnClick={false}
+                  >
+                    <div className="popup">
+                      <h3 className="popup-title">
+                        <span
+                          className="popup-type-badge"
+                          style={{ backgroundColor: pipePopup.color }}
+                        >
+                          {pipePopup.label}
+                        </span>
+                      </h3>
+                      {pipePopup.rows.length > 0 ? (
+                        <table className="popup-table">
+                          <tbody>
+                            {pipePopup.rows.map(({ label, value, href }) => (
+                              <tr key={label}>
+                                <td>{label}</td>
+                                <td>
+                                  {href ? (
+                                    <a
+                                      href={href}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      title={`Open ${value}.pdf`}
+                                      style={{ color: '#2b6cb0', textDecoration: 'underline' }}
+                                    >
+                                      {value}
+                                    </a>
+                                  ) : (
+                                    value
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : (
+                        <p style={{ fontSize: '11px', margin: 0 }}>No attributes on this segment.</p>
+                      )}
+                      <p style={{ fontSize: '10px', color: '#777', margin: '6px 0 0' }}>
+                        Reference layer &mdash; read only
+                      </p>
+                    </div>
+                  </Popup>
+                )}
                 <Marker latitude={Number(lat)} longitude={Number(lng)} />
                 {popupInfo && (
                   <>
@@ -984,7 +1146,7 @@ function App() {
                           <TableCell /* width="15%" */>{location.photos ? location.photos.length : 0}</TableCell>
                           <TableCell /* width="15%" */>{location.lat != null ? Number(location.lat).toFixed(6) : ''}</TableCell>
                           <TableCell /* width="15%" */>{location.lng != null ? Number(location.lng).toFixed(6) : ''}</TableCell>
-                          <TableCell>{jointMap[location.id] == null ? '' : jointMap[location.id] ? 'true' : 'false'}</TableCell>
+                          <TableCell>{location.joint == null ? '' : location.joint ? 'true' : 'false'}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -1029,9 +1191,9 @@ function App() {
               };
 
               const MH_UNIT_COST = 1500;
-              const mhCount = location.filter(loc => loc.type === "wastewater" && jointMap[loc.id] === false).length;
+              const mhCount = location.filter(loc => loc.type === "wastewater" && loc.joint === false).length;
               const mhCost = mhCount * MH_UNIT_COST;
-              const swMhCount = location.filter(loc => loc.type === "stormwater" && jointMap[loc.id] === false).length;
+              const swMhCount = location.filter(loc => loc.type === "stormwater" && loc.joint === false).length;
               const swMhCost = swMhCount * MH_UNIT_COST;
 
               const t1Cost = computePipeTotal("water");
